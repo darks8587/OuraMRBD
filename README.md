@@ -1,93 +1,94 @@
 # Oura Display — Ray-Ban Display glasses webapp
 
-A glanceable Oura Ring dashboard for Meta Ray-Ban Display glasses. Shows today's Readiness, Sleep, Activity, and Heart Rate scores plus a 7-day sparkline for each, drillable into a detail overlay. Designed against the [meta-wearables-webapp](https://github.com/facebookincubator/meta-wearables-webapp) design system (600x600, dark background, D-pad nav, focusable elements).
+A glanceable, transparent HUD dashboard for your Oura Ring metrics, designed for Meta Ray-Ban Display glasses. Shows today's Readiness, Sleep, Activity, and Heart-rate score as four circular tiles with 7-day sparklines; tap any circle to drill into a detail overlay with the full trend + sub-metrics.
 
-## What's in this folder
+## Files
 
 ```
 index.html      Main glasses app (this is what loads on the glasses)
-setup.html      Companion page you open on your phone/desktop to authorize and pair
+setup.html      Companion page you open on your phone/desktop to pair
 styles.css      Shared styles (glasses dashboard + setup page)
 app.js          Glasses app logic — API fetch, sparklines, D-pad nav, settings
-setup.js        Setup flow logic — OAuth implicit flow + QR pairing URL
+setup.js        Setup logic — PAT verification + QR pairing URL
+PRIVACY.md      Privacy policy (for Oura's OAuth form if you ever switch to OAuth)
+TERMS.md        Terms of use (same)
 README.md       This file
 ```
 
 ## How the auth flow works
 
-The glasses' browser has no keyboard, so OAuth can't happen on the glasses themselves. Instead:
+The glasses' browser has no keyboard, so credentials can't be entered on the glasses themselves. The flow is:
 
-1. **You** open `setup.html` on your phone or desktop browser.
-2. You click **Connect Oura** → standard OAuth2 implicit flow → Oura redirects back to `setup.html` with an access token in the URL fragment.
-3. The setup page generates a **pairing URL** like `https://your-app.example.com/index.html#token=ABC123` and shows it as a QR code.
-4. You add that pairing URL to the glasses (Meta AI app → Devices → Display Glasses → App connections → Web apps → Add a web app).
-5. The glasses load `index.html`, the app reads the token from the URL fragment on first load, saves it to the glasses' `localStorage`, strips the fragment, and starts fetching metrics.
+1. **On your phone or desktop**, open `setup.html` and paste your Oura Personal Access Token (PAT).
+2. The setup page verifies the token with a single API call and generates a **pairing URL** + QR code. The URL looks like `https://your-app/index.html#token=YOUR_PAT`.
+3. You add that URL to the glasses via the Meta AI app. On first load, the glasses extract the token from the URL fragment, save it to the glasses' `localStorage`, strip the fragment, and start fetching metrics.
 
-The token lives only in localStorage on the glasses. No backend, no server-side anything. Tokens last ~30 days; re-pair when one expires.
+No backend, no server-side anything. PATs don't expire (or expire after years), so you only pair once.
 
-## One-time Oura side setup
+## Get a Personal Access Token
 
-1. Register an OAuth app at [cloud.ouraring.com/oauth/applications](https://cloud.ouraring.com/oauth/applications).
-2. Add **your deployed `setup.html` URL** (exactly — no trailing slash differences) as a redirect URI in the Oura app.
-3. Copy the Client ID — you'll paste it into the setup page each time you re-pair.
-4. Make sure the app has these scopes available: `daily`, `heartrate`, `personal`.
+1. Sign in at https://cloud.ouraring.com/personal-access-tokens
+2. Click "Create new personal access token"
+3. Copy the token — you'll need to paste it on `setup.html`. (You won't be able to see it again after closing the tab, so save it somewhere safe too.)
+
+That's it. **No OAuth app registration, no Privacy Policy URL, no Redirect URI** — those are only needed if you want to release the app for other Oura users to use.
 
 ## Deploy
 
-The glasses require a **public HTTPS URL**. Any static host works:
+The glasses require a **public HTTPS URL**. The easiest path is GitHub Pages:
 
-- **Vercel** — drag-and-drop this folder at [vercel.com/new](https://vercel.com/new) or `npx vercel deploy`
-- **Netlify** — drag-and-drop at [app.netlify.com/drop](https://app.netlify.com/drop)
-- **GitHub Pages** — push to a repo, enable Pages
-- **Cloudflare Pages** — connect repo
+1. Push these files to a public GitHub repo (e.g. `your-username/OuraMRBD`).
+2. Repo &rarr; **Settings** &rarr; **Pages** &rarr; Source = *Deploy from a branch*, Branch = `main`, Folder = `/ (root)` &rarr; **Save**.
+3. After ~1 minute the page shows: *Your site is live at `https://<your-username>.github.io/<repo-name>/`.*
 
-After deploying, update the redirect URI in your Oura OAuth app to match the deployed URL of `setup.html`.
+Other hosts that work the same way: Vercel, Netlify, Cloudflare Pages. Drag-and-drop deploys also fine.
 
 ## Pair your glasses
 
-1. On phone or desktop, open `https://your-deployed-url/setup.html`.
-2. Paste your Oura **Client ID** → tap **Connect Oura**.
-3. Approve the scopes on Oura's page → you bounce back to setup.
-4. **Scan the QR code with your phone's camera** — it copies the pairing URL.
-5. Open Meta AI app → Devices → Display Glasses → App connections → Web apps → Add a web app → paste URL.
+1. On your phone, open `https://<your-deployed-url>/setup.html`.
+2. Paste your Personal Access Token &rarr; tap **Verify & Continue**.
+3. The page shows a QR code. **Scan it with your phone's camera** to copy the pairing URL.
+4. Open the Meta AI app &rarr; **Devices** &rarr; **Display Glasses** &rarr; **App connections** &rarr; **Web apps** &rarr; **Add a web app** &rarr; paste URL.
 
-Done. The metrics screen should appear on the glasses within a few seconds.
+The metrics screen should appear on the glasses within a few seconds.
 
 ## Test locally
 
-You can test the glasses UI in any desktop browser at 600x600:
+You can preview the glasses UI in any desktop browser at 600&times;600:
 
-1. Serve the folder over HTTP (`npx serve` or `python -m http.server`).
-2. Open `http://localhost:3000/index.html#token=YOUR_TOKEN` — paste a real token you generated via setup, or use a [Personal Access Token](https://cloud.ouraring.com/personal-access-tokens).
-3. Resize the window to 600x600 and use arrow keys for D-pad navigation.
+1. Serve the folder over HTTP &mdash; e.g. `npx serve` or `python -m http.server 8080`.
+2. Open `http://localhost:8080/index.html#token=YOUR_PAT`.
+3. Resize the window to 600&times;600 and use the arrow keys to simulate D-pad input.
 
 ## Navigation cheatsheet (on glasses)
 
 | Gesture | Action |
 | --- | --- |
-| D-pad up/down/left/right | Move focus between tiles / buttons |
-| Tap / Enter | Open detail overlay or activate button |
+| D-pad up/down/left/right | Move focus between circles / buttons |
+| Tap / Enter | Open the detail overlay for the focused tile |
 | Back / Escape | Close overlay, or return to home |
-| In detail overlay | Press the **Back** button to return |
-| In Settings → Auto-refresh row | Left/right to step the interval |
+| Settings &rarr; Auto-refresh row | Left/right to step the interval |
 
 ## Settings
 
-- **Auto-refresh** — `0` to disable, or 5/10/15/30/60 min cadence. Default 15.
-- **Sign Out** — clears the stored token. Re-pair from setup.
+- **Auto-refresh** &mdash; `0` to disable; or 5/10/15/30/60 min. Default 15.
+- **Sign Out** &mdash; clears the stored token from glasses' localStorage. Re-pair from setup.
 
 ## API endpoints used
 
-- `GET /v2/usercollection/daily_readiness?start_date&end_date` — readiness score + contributors + RHR (7 days)
-- `GET /v2/usercollection/daily_sleep?start_date&end_date` — sleep score + contributors (7 days)
-- `GET /v2/usercollection/daily_activity?start_date&end_date` — activity score + steps + calories (7 days)
-- `GET /v2/usercollection/heartrate?start_datetime&end_datetime` — last 6h of HR samples for latest reading
+- `GET /v2/usercollection/daily_readiness?start_date&end_date` &mdash; today's score + 7-day trend
+- `GET /v2/usercollection/daily_sleep?start_date&end_date` &mdash; same for sleep
+- `GET /v2/usercollection/daily_activity?start_date&end_date` &mdash; activity score + steps + calories
+- `GET /v2/usercollection/heartrate?start_datetime&end_datetime` &mdash; latest live heart-rate sample
 
-Each is called in parallel via `Promise.allSettled`, so a single endpoint failing won't break the whole dashboard. Failed tiles just show `--`.
+Each is called in parallel via `Promise.allSettled`, so one endpoint failing won't break the whole dashboard. Tiles that can't load just show `--`.
 
 ## Known limitations
 
-- Tokens expire after ~30 days (Oura's implicit-flow limit). Re-pair when that happens.
-- Heart rate samples come from the `/heartrate` endpoint which is Gen 3+ ring only; older rings will see `--` for the latest HR but still get the 7-day RHR trend from readiness.
-- The QR code is generated via the public `api.qrserver.com` service. If you'd rather avoid that, swap `setup.js`'s `qrApi` line for any local QR library.
-- No backend means we trust the user's deployment to be private (don't share the deployed URL — anyone hitting `setup.html` with your client_id could initiate OAuth, though Oura will still ask them to log in to *their* Oura account).
+- The `/heartrate` endpoint requires a Gen 3 ring. On older rings the Heart tile falls back to the 7-day resting-heart-rate trend pulled from the readiness data.
+- QR codes are generated via `api.qrserver.com` (only the public pairing URL is sent there). If you'd rather not depend on that service, swap the `qrApi` line in `setup.js` for any local QR library.
+- The HUD relies on the additive display rendering `#000` as transparent. Against very bright real-world backgrounds the thin outlines may be harder to read &mdash; if that's an issue we can thicken them or add subtle text shadows.
+
+## License
+
+MIT &mdash; do whatever you want with this code, no warranty implied. See `TERMS.md` for the long version.

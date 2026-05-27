@@ -10,21 +10,25 @@
   <div id="app">
     <div class="setup-wrap">
       <h1>Oura Display</h1>
-      <p>Pair your Oura account with your Ray-Ban Display glasses.</p>
+      <p>Pair your Oura account with your Ray-Ban Display glasses using a Personal Access Token.</p>
 
-      <!-- Step 1: client_id -->
-      <div class="step" id="step-client">
-        <h2><span class="step-num">1</span>Oura OAuth client ID</h2>
-        <p>From <a style="color:var(--accent-readiness)" href="https://cloud.ouraring.com/oauth/applications" target="_blank">cloud.ouraring.com/oauth/applications</a>. Set this page's URL as a redirect URI in your Oura app first.</p>
-        <label for="client-id">Client ID</label>
-        <input type="text" id="client-id" placeholder="e.g. E55QJ2DGMZUXK6TN" autocomplete="off" autocapitalize="off" spellcheck="false">
-        <div style="height:10px"></div>
-        <button class="setup-btn" id="connect-btn">Connect Oura</button>
+      <!-- Step 1: paste PAT -->
+      <div class="step" id="step-token">
+        <h2><span class="step-num">1</span>Paste your Personal Access Token</h2>
+        <p>Generate one at <a style="color:var(--accent-readiness)" href="https://cloud.ouraring.com/personal-access-tokens" target="_blank">cloud.ouraring.com/personal-access-tokens</a>. It looks like a long string of letters and numbers.</p>
+        <label for="pat">Personal Access Token</label>
+        <input type="password" id="pat" placeholder="ABCDEFGH1234..." autocomplete="off" autocapitalize="off" spellcheck="false">
+        <div style="display:flex; align-items:center; gap:8px; margin:6px 0 14px;">
+          <input type="checkbox" id="show-pat" style="width:auto; margin:0;">
+          <label for="show-pat" style="margin:0; text-transform:none; letter-spacing:0; font-size:13px; color:var(--text-secondary); font-weight:400;">Show token</label>
+        </div>
+        <button class="setup-btn" id="verify-btn">Verify &amp; Continue</button>
+        <div id="verify-error" class="hidden" style="margin-top:12px; color:var(--danger); font-size:14px;"></div>
       </div>
 
-      <!-- Step 2: connected (shown after OAuth) -->
+      <!-- Step 2: paired -->
       <div class="step hidden" id="step-paired">
-        <h2><span class="step-num">2</span>Token received <span class="status-pill connected" id="paired-pill">Connected</span></h2>
+        <h2><span class="step-num">2</span>Token verified <span class="status-pill connected" id="paired-pill">Connected</span></h2>
         <p id="paired-detail">Scan this QR with your phone's camera, or copy the URL below.</p>
 
         <div class="qr-wrap">
@@ -35,23 +39,16 @@
         <div class="pair-url" id="pair-url"></div>
 
         <h2 style="margin-top:20px"><span class="step-num">3</span>Add to glasses</h2>
-        <p>Open the <b>Meta AI app</b> on your phone → <b>Devices</b> → <b>Display Glasses</b> → <b>App connections</b> → <b>Web apps</b> → <b>Add a web app</b>. Paste the URL above.</p>
+        <p>Open the <b>Meta AI app</b> on your phone &rarr; <b>Devices</b> &rarr; <b>Display Glasses</b> &rarr; <b>App connections</b> &rarr; <b>Web apps</b> &rarr; <b>Add a web app</b>. Paste the URL above.</p>
 
         <div style="height:14px"></div>
         <button class="setup-btn secondary" id="copy-btn">Copy URL</button>
         <div style="height:8px"></div>
-        <button class="setup-btn secondary" id="reset-btn">Reset / re-pair</button>
-      </div>
-
-      <!-- Error state -->
-      <div class="step hidden" id="step-error">
-        <h2><span class="step-num">!</span>Couldn't connect <span class="status-pill error">Error</span></h2>
-        <p id="error-detail">Authorization was denied or something went wrong.</p>
-        <button class="setup-btn secondary" id="error-reset">Try again</button>
+        <button class="setup-btn secondary" id="reset-btn">Use a different token</button>
       </div>
 
       <div style="text-align:center;margin-top:20px;color:var(--text-muted);font-size:13px">
-        Tokens are stored only in your browser's localStorage. Nothing is sent to a server.
+        Your token stays in your browser and the URL fragment only. Nothing is sent to any server other than Oura's API.
       </div>
     </div>
   </div>

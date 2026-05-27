@@ -1,156 +1,174 @@
-// Oura Display — Setup page
-// Handles OAuth2 implicit flow + generates a pairing URL for the glasses.
+// Oura Display — Setup page (Personal Access Token flow)
+// Verifies the PAT against the Oura API, then generates a pairing URL/QR
+// that embeds the token in the fragment so the glasses webapp can pick it up.
 
 (function () {
   'use strict';
 
-  const AUTH_URL = 'https://cloud.ouraring.com/oauth/authorize';
-  const SCOPES = 'daily heartrate personal';
-  const CLIENT_KEY = 'oura_setup_client_id';
-  const STATE_KEY = 'oura_setup_state';
+  var VERIFY_URL = 'https://api.ouraring.com/v2/usercollection/personal_info';
 
-  // Where the glasses-facing app lives. By default same dir as setup.html,
-  // resolved to /index.html. If you serve via a router, override SETUP_GLASSES_URL.
-  function glassesUrl() {
-    const u = new URL(window.location.href);
+  var $ = function (id) { return document.getElementById(id); };
+
+  function show(id) {
+    ['step-token', 'step-paired'].forEach(function (s) {
+      $(s).classList.add('hidden');
+    });
+    $(id).classList.remove('hidden');
+  }
+
+  function setError(msg) {
+    var el = $('verify-error');
+    if (!msg) {
+      el.classList.add('hidden');
+      el.textContent = '';
+    } else {
+      el.classList.remove('hidden');
+      el.textContent = msg;
+    }
+  }
+
+  // Strip whitespace and zero-width characters (ZWSP, ZWNJ, ZWJ, BOM)
+  // that sometimes sneak in when copying tokens from web pages.
+  function cleanToken(raw) {
+    if (!raw) return '';
+    return raw
+      .replace(/\s+/g, '')
+      .replace(/[​‌‍﻿]/g, '');
+  }
+
+  // Build the glasses-facing URL: index.html on this same origin/path,
+  // with the PAT embedded in the URL fragment.
+  function glassesUrl(token) {
+    var u = new URL(window.location.href);
     u.pathname = u.pathname.replace(/setup\.html?$/i, 'index.html');
     if (!u.pathname.endsWith('index.html') && !u.pathname.endsWith('/')) {
       u.pathname = u.pathname.replace(/[^/]+$/, '');
     }
     u.search = '';
-    u.hash = '';
+    u.hash = 'token=' + encodeURIComponent(token);
     return u.toString();
   }
 
-  function redirectUri() {
-    // Self-redirect: OAuth comes back to setup.html with token in fragment
-    const u = new URL(window.location.href);
-    u.search = '';
-    u.hash = '';
-    return u.toString();
-  }
-
-  const $ = (id) => document.getElementById(id);
-
-  function genState() {
-    const arr = new Uint8Array(16);
-    crypto.getRandomValues(arr);
-    return Array.from(arr).map(b => b.toString(16).padStart(2, '0')).join('');
-  }
-
-  function show(id) {
-    ['step-client', 'step-paired', 'step-error'].forEach(s => $(s).classList.add('hidden'));
-    $(id).classList.remove('hidden');
-  }
-
-  // ------------------------------------------
-  // Init: handle either initial state or OAuth return
-  // ------------------------------------------
-  function init() {
-    // Pre-fill last-used client_id
-    const saved = localStorage.getItem(CLIENT_KEY);
-    if (saved) $('client-id').value = saved;
-
-    // Check URL fragment for OAuth callback
-    const hash = window.location.hash || '';
-    if (hash.length > 1) {
-      const params = new URLSearchParams(hash.slice(1));
-      const err = params.get('error');
-      const tok = params.get('access_token');
-      const returnedState = params.get('state');
-      const expectedState = sessionStorage.getItem(STATE_KEY);
-
-      if (err) {
-        $('error-detail').textContent = 'Error: ' + err;
-        show('step-error');
-        history.replaceState(null, '', window.location.pathname);
-        return;
-      }
-      if (tok) {
-        if (expectedState && returnedState !== expectedState) {
-          $('error-detail').textContent = 'State mismatch (possible CSRF). Try again.';
-          show('step-error');
-          history.replaceState(null, '', window.location.pathname);
-          return;
+  function verifyToken(token) {
+    return fetch(VERIFY_URL, {
+      headers: { 'Authorization': 'Bearer ' + token }
+    }).then(function (res) {
+      return res.text().then(function (bodyText) {
+        if (res.ok) {
+          try { return { ok: true, info: JSON.parse(bodyText) }; }
+          catch (e) { return { ok: true, info: null }; }
         }
-        sessionStorage.removeItem(STATE_KEY);
-        const expiresIn = params.get('expires_in') || '';
-        const scope = params.get('scope') || '';
-        renderPaired(tok, expiresIn, scope);
-        history.replaceState(null, '', window.location.pathname);
-        return;
-      }
-    }
-    show('step-client');
+        var detail = '';
+        try {
+          var body = JSON.parse(bodyText);
+          detail = body.detail || body.message || body.error_description || body.error || '';
+        } catch (e) {
+          detail = bodyText.slice(0, 200);
+        }
+        console.error('Oura verify failed:', { status: res.status, body: bodyText });
+        var hint = '';
+        if (res.status === 400) {
+          hint = ' Make sure this is a Personal Access Token from cloud.ouraring.com/personal-access-tokens — not an OAuth Client ID or Secret.';
+        } else if (res.status === 401 || res.status === 403) {
+          hint = ' The token may have been revoked or copied incorrectly.';
+        }
+        return {
+          ok: false,
+          reason: 'Oura returned ' + res.status + (detail ? ' — "' + detail + '"' : '') + '.' + hint,
+          status: res.status,
+          body: bodyText
+        };
+      });
+    }).catch(function (e) {
+      return { ok: false, reason: 'Network error: ' + (e.message || e) };
+    });
   }
 
-  function renderPaired(token, expiresIn, scope) {
-    // Build the glasses pairing URL with token in fragment
-    const url = glassesUrl() + '#token=' + encodeURIComponent(token)
-      + (expiresIn ? '&expires_in=' + encodeURIComponent(expiresIn) : '')
-      + (scope ? '&scope=' + encodeURIComponent(scope) : '');
-
+  function renderPaired(token) {
+    var url = glassesUrl(token);
     $('pair-url').textContent = url;
-
-    // Encode QR via a public QR API (works on any device with internet,
-    // which the user definitely has since they just did OAuth)
-    const qrApi = 'https://api.qrserver.com/v1/create-qr-code/?size=260x260&qzone=1&data='
-      + encodeURIComponent(url);
+    var qrApi = 'https://api.qrserver.com/v1/create-qr-code/?size=260x260&qzone=1&data=' + encodeURIComponent(url);
     $('qr-img').src = qrApi;
-
-    // Token-validity hint
-    if (expiresIn) {
-      const days = Math.round(parseInt(expiresIn, 10) / 86400);
-      $('paired-detail').textContent = 'Token valid for ~' + days + ' days. Scan the QR with your phone or copy the URL below.';
-    }
-
     show('step-paired');
   }
 
   // ------------------------------------------
-  // OAuth start
+  // Wire up UI
   // ------------------------------------------
-  $('connect-btn').addEventListener('click', function () {
-    const clientId = $('client-id').value.trim();
-    if (!clientId) {
-      $('client-id').focus();
+
+  $('show-pat').addEventListener('change', function (e) {
+    $('pat').type = e.target.checked ? 'text' : 'password';
+  });
+
+  $('verify-btn').addEventListener('click', function () {
+    setError(null);
+    var raw = $('pat').value;
+    var token = cleanToken(raw);
+    console.log('PAT length after cleaning:', token.length, '(raw was ' + raw.length + ')');
+
+    if (!token) {
+      $('pat').focus();
+      setError('Paste a token first.');
       return;
     }
-    localStorage.setItem(CLIENT_KEY, clientId);
-    const state = genState();
-    sessionStorage.setItem(STATE_KEY, state);
-    const url = AUTH_URL
-      + '?response_type=token'
-      + '&client_id=' + encodeURIComponent(clientId)
-      + '&redirect_uri=' + encodeURIComponent(redirectUri())
-      + '&scope=' + encodeURIComponent(SCOPES)
-      + '&state=' + encodeURIComponent(state);
-    window.location.assign(url);
+    if (token.length < 20) {
+      setError('That does not look like a full token — Oura PATs are longer than 20 characters. (Got ' + token.length + ' chars.)');
+      return;
+    }
+
+    var btn = $('verify-btn');
+    var originalText = btn.textContent;
+    btn.disabled = true;
+    btn.textContent = 'Verifying...';
+
+    verifyToken(token).then(function (result) {
+      if (!result.ok) {
+        setError(result.reason);
+        return;
+      }
+      renderPaired(token);
+    }).catch(function (e) {
+      setError('Unexpected error: ' + (e.message || e));
+    }).then(function () {
+      btn.disabled = false;
+      btn.textContent = originalText;
+    });
   });
 
-  // Copy URL button
-  $('copy-btn').addEventListener('click', async function () {
-    const url = $('pair-url').textContent;
-    try {
-      await navigator.clipboard.writeText(url);
-      $('copy-btn').textContent = 'Copied!';
-      setTimeout(() => $('copy-btn').textContent = 'Copy URL', 1500);
-    } catch {
-      // Fallback: select the URL element
-      const range = document.createRange();
-      range.selectNode($('pair-url'));
-      window.getSelection().removeAllRanges();
-      window.getSelection().addRange(range);
+  $('pat').addEventListener('keydown', function (e) {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      $('verify-btn').click();
     }
   });
 
-  // Reset
-  $('reset-btn').addEventListener('click', function () {
-    show('step-client');
-  });
-  $('error-reset').addEventListener('click', function () {
-    show('step-client');
+  $('copy-btn').addEventListener('click', function () {
+    var url = $('pair-url').textContent;
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(url).then(function () {
+        $('copy-btn').textContent = 'Copied!';
+        setTimeout(function () { $('copy-btn').textContent = 'Copy URL'; }, 1500);
+      }).catch(function () {
+        selectPairUrl();
+      });
+    } else {
+      selectPairUrl();
+    }
   });
 
-  init();
+  function selectPairUrl() {
+    var range = document.createRange();
+    range.selectNode($('pair-url'));
+    window.getSelection().removeAllRanges();
+    window.getSelection().addRange(range);
+  }
+
+  $('reset-btn').addEventListener('click', function () {
+    $('pat').value = '';
+    setError(null);
+    show('step-token');
+    $('pat').focus();
+  });
+
+  $('pat').focus();
 })();
