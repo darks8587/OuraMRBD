@@ -1,0 +1,61 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Oura Display — Setup</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body class="setup">
+  <div id="app">
+    <div class="setup-wrap">
+      <h1>Oura Display</h1>
+      <p>Pair your Oura account with your Ray-Ban Display glasses.</p>
+
+      <!-- Step 1: client_id -->
+      <div class="step" id="step-client">
+        <h2><span class="step-num">1</span>Oura OAuth client ID</h2>
+        <p>From <a style="color:var(--accent-readiness)" href="https://cloud.ouraring.com/oauth/applications" target="_blank">cloud.ouraring.com/oauth/applications</a>. Set this page's URL as a redirect URI in your Oura app first.</p>
+        <label for="client-id">Client ID</label>
+        <input type="text" id="client-id" placeholder="e.g. E55QJ2DGMZUXK6TN" autocomplete="off" autocapitalize="off" spellcheck="false">
+        <div style="height:10px"></div>
+        <button class="setup-btn" id="connect-btn">Connect Oura</button>
+      </div>
+
+      <!-- Step 2: connected (shown after OAuth) -->
+      <div class="step hidden" id="step-paired">
+        <h2><span class="step-num">2</span>Token received <span class="status-pill connected" id="paired-pill">Connected</span></h2>
+        <p id="paired-detail">Scan this QR with your phone's camera, or copy the URL below.</p>
+
+        <div class="qr-wrap">
+          <img id="qr-img" alt="Pairing QR code" width="260" height="260">
+        </div>
+
+        <label style="margin-top:14px">Pairing URL</label>
+        <div class="pair-url" id="pair-url"></div>
+
+        <h2 style="margin-top:20px"><span class="step-num">3</span>Add to glasses</h2>
+        <p>Open the <b>Meta AI app</b> on your phone → <b>Devices</b> → <b>Display Glasses</b> → <b>App connections</b> → <b>Web apps</b> → <b>Add a web app</b>. Paste the URL above.</p>
+
+        <div style="height:14px"></div>
+        <button class="setup-btn secondary" id="copy-btn">Copy URL</button>
+        <div style="height:8px"></div>
+        <button class="setup-btn secondary" id="reset-btn">Reset / re-pair</button>
+      </div>
+
+      <!-- Error state -->
+      <div class="step hidden" id="step-error">
+        <h2><span class="step-num">!</span>Couldn't connect <span class="status-pill error">Error</span></h2>
+        <p id="error-detail">Authorization was denied or something went wrong.</p>
+        <button class="setup-btn secondary" id="error-reset">Try again</button>
+      </div>
+
+      <div style="text-align:center;margin-top:20px;color:var(--text-muted);font-size:13px">
+        Tokens are stored only in your browser's localStorage. Nothing is sent to a server.
+      </div>
+    </div>
+  </div>
+
+  <script src="setup.js"></script>
+</body>
+</html>

@@ -1,0 +1,135 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=600, height=600, initial-scale=1.0, user-scalable=no">
+  <title>Oura</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <div id="app">
+
+    <!-- Home / Overview screen -->
+    <div id="home" class="screen">
+      <header class="header">
+        <h1>Oura</h1>
+        <span class="header-meta" id="status-meta">--</span>
+      </header>
+
+      <div class="content grid-content">
+        <div class="metric-grid">
+          <button class="tile focusable" data-metric="readiness" tabindex="0">
+            <div class="tile-circle">
+              <svg class="tile-icon" viewBox="0 0 24 24" aria-hidden="true">
+                <path d="M3 18 L5 8 L9 12 L12 6 L15 12 L19 8 L21 18 Z M3 20 H21 V21 H3 Z"/>
+              </svg>
+              <span class="tile-score" id="tile-readiness-score">--</span>
+              <svg class="tile-spark" id="spark-readiness" viewBox="0 0 80 20" preserveAspectRatio="none" aria-hidden="true"></svg>
+            </div>
+            <span class="tile-label">Readiness</span>
+          </button>
+
+          <button class="tile focusable" data-metric="sleep" tabindex="0">
+            <div class="tile-circle">
+              <svg class="tile-icon" viewBox="0 0 24 24" aria-hidden="true">
+                <path d="M21 12.8 A9 9 0 1 1 11.2 3 A7 7 0 0 0 21 12.8 Z"/>
+              </svg>
+              <span class="tile-score" id="tile-sleep-score">--</span>
+              <svg class="tile-spark" id="spark-sleep" viewBox="0 0 80 20" preserveAspectRatio="none" aria-hidden="true"></svg>
+            </div>
+            <span class="tile-label">Sleep</span>
+          </button>
+
+          <button class="tile focusable" data-metric="activity" tabindex="0">
+            <div class="tile-circle">
+              <svg class="tile-icon" viewBox="0 0 24 24" aria-hidden="true">
+                <path d="M12 2 C12 2 7 7 7 13 A5 5 0 0 0 17 13 C17 9 14 7 13 4 C13 6 11 8 10 9 C10 7 11 5 12 2 Z"/>
+              </svg>
+              <span class="tile-score" id="tile-activity-score">--</span>
+              <span class="tile-substat" id="tile-activity-steps"></span>
+            </div>
+            <span class="tile-label">Activity</span>
+          </button>
+
+          <button class="tile focusable" data-metric="heart" tabindex="0">
+            <div class="tile-circle">
+              <svg class="tile-icon" viewBox="0 0 24 24" aria-hidden="true">
+                <path d="M12 21 C12 21 3 14 3 8.5 A4.5 4.5 0 0 1 12 6 A4.5 4.5 0 0 1 21 8.5 C21 14 12 21 12 21 Z"/>
+              </svg>
+              <span class="tile-score" id="tile-heart-score">--</span>
+              <svg class="tile-spark" id="spark-heart" viewBox="0 0 80 20" preserveAspectRatio="none" aria-hidden="true"></svg>
+            </div>
+            <span class="tile-label">Heart</span>
+          </button>
+        </div>
+      </div>
+
+      <nav class="nav-bar">
+        <button class="nav-item focusable primary" data-action="refresh">Refresh</button>
+        <button class="nav-item focusable" data-action="open-settings">Settings</button>
+      </nav>
+    </div>
+
+    <!-- Detail overlay (one container, populated dynamically) -->
+    <div id="detail-overlay" class="overlay hidden">
+      <div class="overlay-content detail-content">
+        <div class="detail-title" id="detail-title">--</div>
+        <div class="detail-score" id="detail-score">--</div>
+        <div class="detail-stats" id="detail-stats"></div>
+        <svg class="detail-spark" id="detail-spark" viewBox="0 0 240 60" preserveAspectRatio="none"></svg>
+        <div class="detail-trend" id="detail-trend">&nbsp;</div>
+        <button class="nav-item focusable primary overlay-btn" data-action="dismiss-overlay">Back</button>
+      </div>
+    </div>
+
+    <!-- Settings screen -->
+    <div id="settings" class="screen hidden">
+      <header class="header">
+        <button class="back-btn focusable" data-action="back-home" aria-label="Back">&#8592;</button>
+        <h1>Settings</h1>
+      </header>
+
+      <div class="content settings-content">
+        <div class="section-label">Connection</div>
+        <div class="info-row">
+          <span class="info-name">Status</span>
+          <span class="info-value" id="conn-status">Not connected</span>
+        </div>
+        <div class="info-row">
+          <span class="info-name">Last sync</span>
+          <span class="info-value" id="conn-last-sync">Never</span>
+        </div>
+
+        <div class="section-label">Auto-refresh</div>
+        <div class="setting-row focusable" data-setting="refreshMins" data-min="0" data-max="60" data-step="5" tabindex="0">
+          <span class="setting-name">Every (min)</span>
+          <span class="setting-stepper">
+            <span class="stepper-arrow">&#9664;</span>
+            <span class="setting-value" id="val-refreshMins">15</span>
+            <span class="stepper-arrow">&#9654;</span>
+          </span>
+        </div>
+
+        <div class="section-label">Token</div>
+        <div class="info-row">
+          <span class="info-name">Stored</span>
+          <span class="info-value" id="token-status">No</span>
+        </div>
+
+        <div class="hint">To reconnect, open the setup page on your phone and re-pair.</div>
+      </div>
+
+      <nav class="nav-bar">
+        <button class="nav-item focusable danger" data-action="clear-token">Sign Out</button>
+      </nav>
+    </div>
+
+    <!-- Error / empty screen -->
+    <div id="error" class="screen hidden">
+      <header class="header">
+        <h1>Oura</h1>
+      </header>
+      <div class="content error-content">
+        <div class="error-icon">!</div>
+        <div class="error-title" id="error-title">Not connected</div>
+        <div class="error-msg" id="error-msg">Open the setup page on your phone to pair this app with your Oura acco
