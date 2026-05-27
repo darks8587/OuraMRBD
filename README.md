@@ -1,64 +1,95 @@
 # Oura Display — Ray-Ban Display glasses webapp
 
-A glanceable, transparent HUD dashboard for your Oura Ring metrics, designed for Meta Ray-Ban Display glasses. Shows today's Readiness, Sleep, Activity, and Heart-rate score as four circular tiles with 7-day sparklines; tap any circle to drill into a detail overlay with the full trend + sub-metrics.
+A glanceable, transparent HUD dashboard for your Oura Ring metrics, designed for **Meta Ray-Ban Display glasses**. Shows today's Readiness, Sleep, Activity, and Heart-rate score as four circular tiles with 7-day sparklines. Tap any circle to drill into a detail overlay with the full trend and sub-metrics.
 
-## Files
+Black pixels render transparent on the additive waveguide display, so the world shows through everywhere except the outlines, numbers, icons, and sparklines.
+
+## What's in this folder
 
 ```
-index.html      Main glasses app (this is what loads on the glasses)
-setup.html      Companion page you open on your phone/desktop to pair
-styles.css      Shared styles (glasses dashboard + setup page)
-app.js          Glasses app logic — API fetch, sparklines, D-pad nav, settings
-setup.js        Setup logic — PAT verification + QR pairing URL
-PRIVACY.md      Privacy policy (for Oura's OAuth form if you ever switch to OAuth)
-TERMS.md        Terms of use (same)
+index.html      Main glasses app (loads on the glasses)
+setup.html      Companion page (open on your phone/desktop to pair)
+styles.css      Shared styles for both pages
+app.js          Glasses app logic — API calls, sparklines, D-pad nav
+setup.js        Setup logic — PAT verification + QR pairing
+worker.js       Cloudflare Worker (DO NOT push to GitHub — pasted into Cloudflare)
+PRIVACY.md      Privacy policy
+TERMS.md        Terms of use
 README.md       This file
 ```
 
+## Architecture
+
+```
++-------------------+         +-------------------------+         +------------------+
+|  Ray-Ban Display  |         |    GitHub Pages site    |         | Cloudflare       |
+|  glasses          | <-----> |  index.html / app.js    | <-----> | Worker proxy     |
+|  (loads index.html)         |  setup.html / setup.js  |         | (worker.js)      |
++-------------------+         +-------------------------+         +--------+---------+
+                                                                           |
+                                                                           v
+                                                                 +-------------------+
+                                                                 |  Oura API V2      |
+                                                                 |  api.ouraring.com |
+                                                                 +-------------------+
+```
+
+The Worker exists for one reason: Oura's API doesn't send `Access-Control-Allow-Origin` headers, so browsers block direct cross-origin calls. The Worker re-issues each request from a server context and adds the CORS headers on the way back. It only proxies a hard-coded whitelist of GET endpoints, so it isn't an open relay.
+
 ## How the auth flow works
 
-The glasses' browser has no keyboard, so credentials can't be entered on the glasses themselves. The flow is:
+Glasses have no keyboard, so credentials can't be typed in on the glasses themselves. Instead:
 
-1. **On your phone or desktop**, open `setup.html` and paste your Oura Personal Access Token (PAT).
-2. The setup page verifies the token with a single API call and generates a **pairing URL** + QR code. The URL looks like `https://your-app/index.html#token=YOUR_PAT`.
-3. You add that URL to the glasses via the Meta AI app. On first load, the glasses extract the token from the URL fragment, save it to the glasses' `localStorage`, strip the fragment, and start fetching metrics.
+1. On your phone or desktop, open `setup.html` and paste your Oura Personal Access Token (PAT).
+2. The setup page calls the verify endpoint through your Worker. If the PAT works, it generates a **pairing URL** like `https://your-app/index.html#token=YOUR_PAT` plus a QR code.
+3. You add that URL to your glasses via the Meta AI app.
+4. On first load the glasses extract the token from the URL fragment, save it to the glasses' `localStorage`, strip the fragment, and start fetching metrics through the Worker.
 
-No backend, no server-side anything. PATs don't expire (or expire after years), so you only pair once.
+PATs don't expire, so you pair once and forget it.
 
-## Get a Personal Access Token
+## One-time setup
 
-1. Sign in at https://cloud.ouraring.com/personal-access-tokens
-2. Click "Create new personal access token"
-3. Copy the token — you'll need to paste it on `setup.html`. (You won't be able to see it again after closing the tab, so save it somewhere safe too.)
+### 1. Get a Personal Access Token
 
-That's it. **No OAuth app registration, no Privacy Policy URL, no Redirect URI** — those are only needed if you want to release the app for other Oura users to use.
+1. Sign in at https://cloud.ouraring.com/personal-access-tokens (note: NOT the OAuth Applications page — different page, different kind of token).
+2. Click **Create New Personal Access Token**, give it a name, and copy the full token from the confirmation screen. Oura only shows it once.
 
-## Deploy
+### 2. Deploy the Cloudflare Worker
 
-The glasses require a **public HTTPS URL**. The easiest path is GitHub Pages:
+1. Sign up / sign in at https://dash.cloudflare.com (free).
+2. **Workers & Pages** → **Create** → **Create Worker** (not Pages).
+3. Choose **"Start with Hello World!"** — name your worker (e.g. `ouraworker`) → **Deploy**.
+4. Click **Edit code**. Select all the existing code and delete it. Paste the entire contents of `worker.js`. Click **Save and deploy**.
+5. Test it: open `https://<worker-name>.<your-subdomain>.workers.dev/` in a new tab. You should see:
+   ```json
+   {"ok":true,"message":"Oura CORS proxy. Use /v2/usercollection/* paths."}
+   ```
+6. Copy that worker URL — you'll need it in the next step.
 
-1. Push these files to a public GitHub repo (e.g. `your-username/OuraMRBD`).
-2. Repo &rarr; **Settings** &rarr; **Pages** &rarr; Source = *Deploy from a branch*, Branch = `main`, Folder = `/ (root)` &rarr; **Save**.
-3. After ~1 minute the page shows: *Your site is live at `https://<your-username>.github.io/<repo-name>/`.*
+### 3. Set PROXY_BASE in `app.js` and `setup.js`
 
-Other hosts that work the same way: Vercel, Netlify, Cloudflare Pages. Drag-and-drop deploys also fine.
+Open both files and find the line near the top:
 
-## Pair your glasses
+```js
+const PROXY_BASE = 'https://YOUR-WORKER.workers.dev';
+```
 
-1. On your phone, open `https://<your-deployed-url>/setup.html`.
-2. Paste your Personal Access Token &rarr; tap **Verify & Continue**.
-3. The page shows a QR code. **Scan it with your phone's camera** to copy the pairing URL.
-4. Open the Meta AI app &rarr; **Devices** &rarr; **Display Glasses** &rarr; **App connections** &rarr; **Web apps** &rarr; **Add a web app** &rarr; paste URL.
+Replace `YOUR-WORKER.workers.dev` with **your actual worker URL** (no trailing slash). Both files must match.
 
-The metrics screen should appear on the glasses within a few seconds.
+### 4. Push to GitHub Pages
 
-## Test locally
+1. Push these files to a public GitHub repo. Do NOT include `worker.js` — that file lives only in Cloudflare.
+2. Repo → **Settings** → **Pages** → Source = *Deploy from a branch*, Branch = `main`, Folder = `/ (root)` → **Save**.
+3. After ~1 minute the page shows: *Your site is live at* `https://<username>.github.io/<repo>/`.
 
-You can preview the glasses UI in any desktop browser at 600&times;600:
+### 5. Pair your glasses
 
-1. Serve the folder over HTTP &mdash; e.g. `npx serve` or `python -m http.server 8080`.
-2. Open `http://localhost:8080/index.html#token=YOUR_PAT`.
-3. Resize the window to 600&times;600 and use the arrow keys to simulate D-pad input.
+1. On your phone, open `https://<username>.github.io/<repo>/setup.html`.
+2. Paste the PAT → **Verify & Continue**.
+3. A QR code appears. Scan it with your phone's camera to copy the pairing URL.
+4. Meta AI app → **Devices** → **Display Glasses** → **App connections** → **Web apps** → **Add a web app** → paste the URL.
+
+Done. The dashboard should appear on the glasses within a few seconds.
 
 ## Navigation cheatsheet (on glasses)
 
@@ -67,28 +98,55 @@ You can preview the glasses UI in any desktop browser at 600&times;600:
 | D-pad up/down/left/right | Move focus between circles / buttons |
 | Tap / Enter | Open the detail overlay for the focused tile |
 | Back / Escape | Close overlay, or return to home |
-| Settings &rarr; Auto-refresh row | Left/right to step the interval |
+| Settings → Auto-refresh row | Left/right to step the interval (0 disables) |
 
 ## Settings
 
-- **Auto-refresh** &mdash; `0` to disable; or 5/10/15/30/60 min. Default 15.
-- **Sign Out** &mdash; clears the stored token from glasses' localStorage. Re-pair from setup.
+- **Auto-refresh** — `0` to disable; or 5/10/15/30/60 min. Default 15.
+- **Sign Out** — clears the stored token. Re-pair from setup.
 
-## API endpoints used
+## API endpoints used (proxied through the Worker)
 
-- `GET /v2/usercollection/daily_readiness?start_date&end_date` &mdash; today's score + 7-day trend
-- `GET /v2/usercollection/daily_sleep?start_date&end_date` &mdash; same for sleep
-- `GET /v2/usercollection/daily_activity?start_date&end_date` &mdash; activity score + steps + calories
-- `GET /v2/usercollection/heartrate?start_datetime&end_datetime` &mdash; latest live heart-rate sample
+- `/v2/usercollection/daily_readiness?start_date&end_date` — today + 7-day trend
+- `/v2/usercollection/daily_sleep?start_date&end_date`
+- `/v2/usercollection/daily_activity?start_date&end_date` — score + steps + calories
+- `/v2/usercollection/heartrate?start_datetime&end_datetime` — latest live sample
+- `/v2/usercollection/personal_info` — used only by the setup page to verify a PAT
 
-Each is called in parallel via `Promise.allSettled`, so one endpoint failing won't break the whole dashboard. Tiles that can't load just show `--`.
+Each is called in parallel via `Promise.allSettled`, so one failing endpoint doesn't break the dashboard. Tiles that can't load show `--`.
 
-## Known limitations
+## Local testing
 
-- The `/heartrate` endpoint requires a Gen 3 ring. On older rings the Heart tile falls back to the 7-day resting-heart-rate trend pulled from the readiness data.
-- QR codes are generated via `api.qrserver.com` (only the public pairing URL is sent there). If you'd rather not depend on that service, swap the `qrApi` line in `setup.js` for any local QR library.
-- The HUD relies on the additive display rendering `#000` as transparent. Against very bright real-world backgrounds the thin outlines may be harder to read &mdash; if that's an issue we can thicken them or add subtle text shadows.
+You can preview the glasses UI in any desktop browser at 600x600:
+
+1. Make sure `PROXY_BASE` is set to your deployed worker URL.
+2. Serve the folder over HTTP — `npx serve` or `python -m http.server 8080`.
+3. Open `http://localhost:8080/index.html#token=YOUR_PAT`.
+4. Resize the window to 600x600. Arrow keys simulate D-pad input.
+
+## Troubleshooting
+
+**"Network error: Failed to fetch" on setup.html**  
+The Worker isn't deployed, isn't reachable, or `PROXY_BASE` is misspelled. Open your worker URL directly in a browser; if the `{"ok":true,...}` JSON doesn't appear, fix the worker first.
+
+**"Oura returned 400" on setup.html**  
+The pasted token isn't a valid PAT. Verify on https://cloud.ouraring.com/personal-access-tokens that the token still exists; the value is only shown once at creation. If you lost it, revoke and create a new one.
+
+**Glasses say "Not connected"**  
+The pairing URL fragment didn't load on first launch. Re-add the web app in the Meta AI app, making sure to paste the full URL **including `#token=...`** at the end.
+
+**Specific tile shows `--` but others work**  
+That endpoint is unavailable for your ring generation. Heart rate samples (`/heartrate`) need a Gen 3 ring; the dashboard falls back to the 7-day resting-HR trend from readiness data so the tile still shows something useful.
+
+**Token expires / I want to rotate it**  
+Revoke the old PAT at https://cloud.ouraring.com/personal-access-tokens, create a new one, re-run `setup.html` with the new token, re-add the new pairing URL to your glasses.
+
+## Security model
+
+- Your PAT lives in the URL fragment (which never leaves the browser network) and in `localStorage` on the glasses. No server stores it.
+- The Cloudflare Worker is a public URL but only forwards a whitelisted set of GET endpoints and only with whatever `Authorization` header the caller supplies. Without a valid Oura PAT, hitting the proxy returns the same `Unauthorized` Oura would.
+- The QR generator uses `api.qrserver.com` which sees only the public pairing URL (which contains the token). Use the in-page **Copy URL** button instead if that's a concern — it skips the QR step.
 
 ## License
 
-MIT &mdash; do whatever you want with this code, no warranty implied. See `TERMS.md` for the long version.
+MIT — see `TERMS.md` for the long version.
