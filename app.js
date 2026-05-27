@@ -1,19 +1,25 @@
 // Oura Display — Meta Ray-Ban Display Glasses webapp
-// Reads Oura API v2 via OAuth2 bearer token bootstrapped from URL fragment.
+// Reads Oura API v2 (via Cloudflare Worker proxy) using a Bearer token
+// bootstrapped from the URL fragment on first load.
 
 (function () {
   'use strict';
 
-  // --- Config / constants ---
-  const API_BASE = 'https://api.ouraring.com/v2/usercollection';
+  // ============================================================
+  //   EDIT THIS after deploying your Cloudflare Worker.
+  //   Must match PROXY_BASE in setup.js (same worker URL).
+  //   Format: 'https://<worker-name>.<your-subdomain>.workers.dev'
+  // ============================================================
+  const PROXY_BASE = 'https://ouraworker.darks8587.workers.dev';
+
+  const API_BASE = PROXY_BASE + '/v2/usercollection';
   const TOKEN_KEY = 'oura_access_token';
-  const TOKEN_META_KEY = 'oura_token_meta';   // { expires_at, scope }
-  const PREFS_KEY = 'oura_prefs';             // { refreshMins }
+  const TOKEN_META_KEY = 'oura_token_meta';
+  const PREFS_KEY = 'oura_prefs';
   const CACHE_KEY = 'oura_cache_v1';
   const DEFAULT_PREFS = { refreshMins: 15 };
   const DAYS_TREND = 7;
 
-  // --- DOM ---
   const $ = (id) => document.getElementById(id);
   const screens = {
     home: $('home'),
@@ -25,16 +31,12 @@
   const errTitle = $('error-title');
   const errMsg = $('error-msg');
 
-  // --- State ---
   let token = null;
   let prefs = { ...DEFAULT_PREFS };
   let data = null;
   let refreshTimer = null;
   let lastOpenedTile = null;
 
-  // ============================================
-  // Token bootstrap
-  // ============================================
   function bootstrapToken() {
     const hash = window.location.hash || '';
     if (hash.length > 1) {
@@ -66,27 +68,19 @@
     data = null;
   }
 
-  // ============================================
-  // Prefs
-  // ============================================
   function loadPrefs() {
     try {
       const raw = localStorage.getItem(PREFS_KEY);
       prefs = raw ? { ...DEFAULT_PREFS, ...JSON.parse(raw) } : { ...DEFAULT_PREFS };
     } catch { prefs = { ...DEFAULT_PREFS }; }
   }
-  function savePrefs() {
-    localStorage.setItem(PREFS_KEY, JSON.stringify(prefs));
-  }
+  function savePrefs() { localStorage.setItem(PREFS_KEY, JSON.stringify(prefs)); }
 
-  // ============================================
-  // Date helpers
-  // ============================================
   function ymd(d) {
     const y = d.getFullYear();
     const m = String(d.getMonth() + 1).padStart(2, '0');
     const day = String(d.getDate()).padStart(2, '0');
-    return `${y}-${m}-${day}`;
+    return y + '-' + m + '-' + day;
   }
   function todayStr() { return ymd(new Date()); }
   function nDaysAgoStr(n) {
@@ -100,11 +94,13 @@
     return d.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
   }
 
-  // ============================================
-  // API
-  // ============================================
   async function apiGet(path, params) {
     if (!token) throw new Error('No token');
+    if (PROXY_BASE.indexOf('YOUR-WORKER') !== -1) {
+      const err = new Error('Proxy not configured');
+      err.status = 0;
+      throw err;
+    }
     const url = new URL(API_BASE + path);
     if (params) {
       Object.entries(params).forEach(([k, v]) => {
@@ -162,20 +158,14 @@
     };
   }
 
-  function saveCache(d) {
-    try { localStorage.setItem(CACHE_KEY, JSON.stringify(d)); } catch {}
-  }
+  function saveCache(d) { try { localStorage.setItem(CACHE_KEY, JSON.stringify(d)); } catch {} }
   function loadCache() {
-    try {
-      const raw = localStorage.getItem(CACHE_KEY);
-      return raw ? JSON.parse(raw) : null;
-    } catch { return null; }
+    try { const raw = localStorage.getItem(CACHE_KEY); return raw ? JSON.parse(raw) : null; }
+    catch { return null; }
   }
 
-  // ============================================
-  // Data extraction
-  // ============================================
-  function dailySeries(collection, key = 'score') {
+  function dailySeries(collection, key) {
+    key = key || 'score';
     if (!collection || !collection.data) return [];
     return collection.data
       .filter(d => d[key] != null)
@@ -200,7 +190,6 @@
       } : null,
     };
   }
-
   function sleepTile(d) {
     const series = dailySeries(d, 'score');
     const last = latest(series);
@@ -210,7 +199,6 @@
       detail: last ? { contributors: last.contributors || {}, day: last.day } : null,
     };
   }
-
   function activityTile(d) {
     const series = dailySeries(d, 'score');
     const last = latest(series);
@@ -228,7 +216,6 @@
       } : null,
     };
   }
-
   function heartTile(hrData, readinessData) {
     const samples = (hrData && hrData.data) ? hrData.data : [];
     samples.sort((a, b) => (a.timestamp < b.timestamp ? -1 : 1));
@@ -253,9 +240,6 @@
     };
   }
 
-  // ============================================
-  // Sparkline rendering
-  // ============================================
   function renderSparkline(svg, series, opts) {
     opts = opts || {};
     if (!svg) return;
@@ -269,8 +253,8 @@
     const innerW = W - pad * 2;
     const innerH = H - pad * 2;
 
-    const minV = Math.min(...series);
-    const maxV = Math.max(...series);
+    const minV = Math.min.apply(null, series);
+    const maxV = Math.max.apply(null, series);
     const range = maxV - minV || 1;
 
     const pts = series.map((v, i) => {
@@ -296,9 +280,6 @@
     }
   }
 
-  // ============================================
-  // Home tiles
-  // ============================================
   function renderHome() {
     if (!data) return;
     const r = readinessTile(data.readiness);
@@ -311,23 +292,17 @@
     $('tile-activity-score').textContent  = a.score != null ? a.score : '--';
     $('tile-heart-score').textContent     = h.score != null ? h.score : '--';
 
-    // Activity sub-stat: today's step count under the score
     const steps = a.detail && a.detail.steps != null ? a.detail.steps : null;
     $('tile-activity-steps').textContent = steps != null ? steps.toLocaleString() : '';
 
-    // 7-day sparklines under the other three scores
     renderSparkline($('spark-readiness'), r.series, { dotRadius: 1.6 });
     renderSparkline($('spark-sleep'),     s.series, { dotRadius: 1.6 });
     renderSparkline($('spark-heart'),     h.series, { dotRadius: 1.6 });
 
     statusMeta.textContent = fmtTime(data.fetched_at);
-
     window.__tileData = { readiness: r, sleep: s, activity: a, heart: h };
   }
 
-  // ============================================
-  // Detail overlay
-  // ============================================
   function showDetail(metric) {
     const t = window.__tileData ? window.__tileData[metric] : null;
     if (!t) return;
@@ -337,12 +312,7 @@
     wrap.classList.remove('readiness', 'sleep', 'activity', 'heart');
     wrap.classList.add(metric);
 
-    const titles = {
-      readiness: 'Readiness',
-      sleep: 'Sleep',
-      activity: 'Activity',
-      heart: 'Heart',
-    };
+    const titles = { readiness: 'Readiness', sleep: 'Sleep', activity: 'Activity', heart: 'Heart' };
     $('detail-title').textContent = titles[metric];
     $('detail-score').textContent = t.score != null ? t.score : '--';
 
@@ -427,16 +397,11 @@
   function dismissOverlay() {
     detailOverlay.classList.add('hidden');
     let target = null;
-    if (lastOpenedTile) {
-      target = document.querySelector('.tile[data-metric="' + lastOpenedTile + '"]');
-    }
+    if (lastOpenedTile) target = document.querySelector('.tile[data-metric="' + lastOpenedTile + '"]');
     if (!target) target = document.querySelector('.tile.focusable');
     if (target) target.focus();
   }
 
-  // ============================================
-  // Screen routing
-  // ============================================
   function showScreen(id) {
     Object.values(screens).forEach(s => s.classList.add('hidden'));
     if (screens[id]) screens[id].classList.remove('hidden');
@@ -446,9 +411,6 @@
     }, 0);
   }
 
-  // ============================================
-  // Settings
-  // ============================================
   function renderSettings() {
     $('val-refreshMins').textContent = prefs.refreshMins;
     $('conn-status').textContent = token ? 'Connected' : 'Not connected';
@@ -477,14 +439,8 @@
     if (key === 'refreshMins') scheduleRefresh();
   }
 
-  // ============================================
-  // Refresh scheduler
-  // ============================================
   function scheduleRefresh() {
-    if (refreshTimer) {
-      clearTimeout(refreshTimer);
-      refreshTimer = null;
-    }
+    if (refreshTimer) { clearTimeout(refreshTimer); refreshTimer = null; }
     if (!prefs.refreshMins || prefs.refreshMins <= 0) return;
     refreshTimer = setTimeout(() => {
       refreshData().finally(scheduleRefresh);
@@ -504,6 +460,10 @@
         showError('Token expired', 'Please re-pair from the setup page on your phone.');
         return;
       }
+      if (e && e.message === 'Proxy not configured') {
+        showError('Proxy not configured', 'Edit app.js and replace YOUR-WORKER.workers.dev with your Cloudflare Worker URL, then re-upload.');
+        return;
+      }
       console.error('Refresh failed', e);
     }
   }
@@ -514,9 +474,6 @@
     showScreen('error');
   }
 
-  // ============================================
-  // Click / action routing
-  // ============================================
   document.addEventListener('click', function (e) {
     const tile = e.target.closest('.tile[data-metric]');
     if (tile && !e.target.closest('[data-action]')) {
@@ -541,9 +498,6 @@
     }
   });
 
-  // ============================================
-  // D-pad focus management
-  // ============================================
   function getVisibleFocusables() {
     const all = document.querySelectorAll('.focusable');
     const list = [];
@@ -620,9 +574,6 @@
     }
   });
 
-  // ============================================
-  // Init
-  // ============================================
   async function init() {
     loadPrefs();
     const t = bootstrapToken();
@@ -631,10 +582,7 @@
       return;
     }
     const cached = loadCache();
-    if (cached) {
-      data = cached;
-      renderHome();
-    }
+    if (cached) { data = cached; renderHome(); }
     showScreen('home');
     await refreshData();
     scheduleRefresh();

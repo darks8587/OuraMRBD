@@ -1,43 +1,38 @@
 // Oura Display — Setup page (Personal Access Token flow)
-// Verifies the PAT against the Oura API, then generates a pairing URL/QR
-// that embeds the token in the fragment so the glasses webapp can pick it up.
+// Verifies the PAT against the Oura API (via your Cloudflare Worker proxy),
+// then generates a pairing URL/QR that embeds the token in the fragment so
+// the glasses webapp can pick it up.
 
 (function () {
   'use strict';
 
-  var VERIFY_URL = 'https://api.ouraring.com/v2/usercollection/personal_info';
+  // ============================================================
+  //   EDIT THIS after deploying your Cloudflare Worker.
+  //   Format: 'https://<worker-name>.<your-subdomain>.workers.dev'
+  //   (no trailing slash)
+  // ============================================================
+  var PROXY_BASE = 'https://ouraworker.darks8587.workers.dev';
+
+  var VERIFY_URL = PROXY_BASE + '/v2/usercollection/personal_info';
 
   var $ = function (id) { return document.getElementById(id); };
 
   function show(id) {
-    ['step-token', 'step-paired'].forEach(function (s) {
-      $(s).classList.add('hidden');
-    });
+    ['step-token', 'step-paired'].forEach(function (s) { $(s).classList.add('hidden'); });
     $(id).classList.remove('hidden');
   }
 
   function setError(msg) {
     var el = $('verify-error');
-    if (!msg) {
-      el.classList.add('hidden');
-      el.textContent = '';
-    } else {
-      el.classList.remove('hidden');
-      el.textContent = msg;
-    }
+    if (!msg) { el.classList.add('hidden'); el.textContent = ''; }
+    else { el.classList.remove('hidden'); el.textContent = msg; }
   }
 
-  // Strip whitespace and zero-width characters (ZWSP, ZWNJ, ZWJ, BOM)
-  // that sometimes sneak in when copying tokens from web pages.
   function cleanToken(raw) {
     if (!raw) return '';
-    return raw
-      .replace(/\s+/g, '')
-      .replace(/[​‌‍﻿]/g, '');
+    return raw.replace(/\s+/g, '').replace(/[​‌‍﻿]/g, '');
   }
 
-  // Build the glasses-facing URL: index.html on this same origin/path,
-  // with the PAT embedded in the URL fragment.
   function glassesUrl(token) {
     var u = new URL(window.location.href);
     u.pathname = u.pathname.replace(/setup\.html?$/i, 'index.html');
@@ -50,6 +45,12 @@
   }
 
   function verifyToken(token) {
+    if (PROXY_BASE.indexOf('YOUR-WORKER') !== -1) {
+      return Promise.resolve({
+        ok: false,
+        reason: 'Proxy not configured. Edit setup.js and replace YOUR-WORKER.workers.dev with your Cloudflare Worker URL, then re-upload setup.js to GitHub.',
+      });
+    }
     return fetch(VERIFY_URL, {
       headers: { 'Authorization': 'Bearer ' + token }
     }).then(function (res) {
@@ -68,19 +69,20 @@
         console.error('Oura verify failed:', { status: res.status, body: bodyText });
         var hint = '';
         if (res.status === 400) {
-          hint = ' Make sure this is a Personal Access Token from cloud.ouraring.com/personal-access-tokens — not an OAuth Client ID or Secret.';
+          hint = ' Make sure this is a Personal Access Token from cloud.ouraring.com/personal-access-tokens.';
         } else if (res.status === 401 || res.status === 403) {
           hint = ' The token may have been revoked or copied incorrectly.';
+        } else if (res.status === 502 || res.status === 503) {
+          hint = ' The proxy could not reach Oura. Wait a few seconds and retry.';
         }
         return {
           ok: false,
           reason: 'Oura returned ' + res.status + (detail ? ' — "' + detail + '"' : '') + '.' + hint,
-          status: res.status,
-          body: bodyText
+          status: res.status, body: bodyText,
         };
       });
     }).catch(function (e) {
-      return { ok: false, reason: 'Network error: ' + (e.message || e) };
+      return { ok: false, reason: 'Network error: ' + (e.message || e) + '. Is your Cloudflare Worker deployed and is PROXY_BASE correct?' };
     });
   }
 
@@ -92,10 +94,6 @@
     show('step-paired');
   }
 
-  // ------------------------------------------
-  // Wire up UI
-  // ------------------------------------------
-
   $('show-pat').addEventListener('change', function (e) {
     $('pat').type = e.target.checked ? 'text' : 'password';
   });
@@ -106,13 +104,9 @@
     var token = cleanToken(raw);
     console.log('PAT length after cleaning:', token.length, '(raw was ' + raw.length + ')');
 
-    if (!token) {
-      $('pat').focus();
-      setError('Paste a token first.');
-      return;
-    }
+    if (!token) { $('pat').focus(); setError('Paste a token first.'); return; }
     if (token.length < 20) {
-      setError('That does not look like a full token — Oura PATs are longer than 20 characters. (Got ' + token.length + ' chars.)');
+      setError('That does not look like a full token (got ' + token.length + ' chars).');
       return;
     }
 
@@ -122,10 +116,7 @@
     btn.textContent = 'Verifying...';
 
     verifyToken(token).then(function (result) {
-      if (!result.ok) {
-        setError(result.reason);
-        return;
-      }
+      if (!result.ok) { setError(result.reason); return; }
       renderPaired(token);
     }).catch(function (e) {
       setError('Unexpected error: ' + (e.message || e));
@@ -136,10 +127,7 @@
   });
 
   $('pat').addEventListener('keydown', function (e) {
-    if (e.key === 'Enter') {
-      e.preventDefault();
-      $('verify-btn').click();
-    }
+    if (e.key === 'Enter') { e.preventDefault(); $('verify-btn').click(); }
   });
 
   $('copy-btn').addEventListener('click', function () {
@@ -148,12 +136,8 @@
       navigator.clipboard.writeText(url).then(function () {
         $('copy-btn').textContent = 'Copied!';
         setTimeout(function () { $('copy-btn').textContent = 'Copy URL'; }, 1500);
-      }).catch(function () {
-        selectPairUrl();
-      });
-    } else {
-      selectPairUrl();
-    }
+      }).catch(function () { selectPairUrl(); });
+    } else { selectPairUrl(); }
   });
 
   function selectPairUrl() {
